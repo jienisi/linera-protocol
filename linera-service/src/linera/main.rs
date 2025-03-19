@@ -58,7 +58,6 @@ use tracing::{debug, error, info, warn, Instrument as _};
 use {
     futures::{stream, TryStreamExt},
     linera_client::benchmark::BenchmarkError,
-    linera_core::client::ChainClientError,
 };
 
 mod net_up_utils;
@@ -807,16 +806,6 @@ impl Runnable for Job {
                         .buffer_unordered(wrap_up_max_in_flight);
                     stream.try_collect::<Vec<_>>().await?;
                 } else {
-                    info!("Processing inbox for all chains...");
-                    let stream = stream::iter(chain_clients.values().cloned())
-                        .map(|chain_client| async move {
-                            chain_client.process_inbox().await?;
-                            info!("Processed inbox for chain {:?}", chain_client.chain_id());
-                            Ok::<(), ChainClientError>(())
-                        })
-                        .buffer_unordered(wrap_up_max_in_flight);
-                    stream.try_collect::<Vec<_>>().await?;
-
                     info!("Updating wallet from chain clients...");
                     for chain_client in chain_clients.values() {
                         context

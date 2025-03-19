@@ -494,6 +494,7 @@ where
         );
         let cross_chain_message_delivery = chain_client.options().cross_chain_message_delivery;
         let mut num_sent_proposals = 0;
+        let authenticated_signer = Some(Owner::from(key_pair.public()));
         loop {
             if shutdown_notifier.is_cancelled() {
                 info!("Shutdown signal received, stopping benchmark");
@@ -506,9 +507,10 @@ where
                 operations: operations.clone(),
                 previous_block_hash: chain_client.block_hash(),
                 height: chain_client.next_block_height(),
-                authenticated_signer: Some(Owner::from(key_pair.public())),
+                authenticated_signer,
                 timestamp: chain_client.timestamp().max(Timestamp::now()),
             };
+            info!("Proposing block: {:#?}", block);
             let executed_block = local_node
                 .stage_block_execution(block.clone(), None, Vec::new())
                 .await
@@ -520,7 +522,7 @@ where
                 BlockProposal::new_initial(linera_base::data_types::Round::Fast, block, &key_pair);
 
             chain_client
-                .submit_block_proposal(&committee, Box::new(proposal), value)
+                .submit_block_proposal_without_process(&committee, Box::new(proposal), value)
                 .await
                 .map_err(BenchmarkError::ChainClient)?;
             let next_block_height = chain_client.next_block_height();

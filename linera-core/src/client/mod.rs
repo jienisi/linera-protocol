@@ -63,7 +63,7 @@ use linera_execution::{
 };
 use linera_storage::{Clock as _, Storage};
 use linera_views::views::ViewError;
-use rand::prelude::SliceRandom as _;
+use rand::{prelude::SliceRandom as _, thread_rng};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::OwnedRwLockReadGuard;
@@ -1111,6 +1111,28 @@ where
         Ok(certificate)
     }
 
+    /// Submits a block proposal to the validators.
+    #[instrument(level = "trace", skip(committee, proposal, value))]
+    pub async fn submit_block_proposal_without_process<T: ProcessableCertificate>(
+        &self,
+        committee: &Committee,
+        proposal: Box<BlockProposal>,
+        value: Hashed<T>,
+    ) -> Result<GenericCertificate<T>, ChainClientError> {
+        let submit_action = CommunicateAction::SubmitBlock {
+            proposal,
+            blob_ids: value.inner().required_blob_ids().into_iter().collect(),
+        };
+        let certificate = self
+            .communicate_chain_action(committee, submit_action, value)
+            .await?;
+        let info = self
+            .handle_chain_info_query(certificate.clone().into_inner().chain_id(), committee)
+            .await?;
+        self.update_from_info(&info);
+        Ok(certificate)
+    }
+
     /// Attempts to update all validators about the local chain.
     #[instrument(level = "trace", skip(old_committee))]
     pub async fn update_validators(
@@ -1231,6 +1253,21 @@ where
                 ChainClientError::ProtocolError("A quorum voted for an unexpected value")
             })?;
         Ok(certificate)
+    }
+
+    #[instrument(level = "trace", skip(committee))]
+    async fn handle_chain_info_query(
+        &self,
+        chain_id: ChainId,
+        committee: &Committee,
+    ) -> Result<ChainInfo, ChainClientError> {
+        let mut nodes = self.make_nodes(committee)?;
+        nodes.shuffle(&mut thread_rng());
+        let query = ChainInfoQuery::new(chain_id);
+        return Ok(*nodes[0]
+            .handle_chain_info_query(query)
+            .await
+            .map_err(ChainClientError::RemoteNodeError)?);
     }
 
     /// Processes the confirmed block certificate and its ancestors in the local node, then
